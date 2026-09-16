@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#020617">
+    <title>Ghostly Analyst V5 - Automatización Excel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { fontFamily: { sans: ['"Plus Jakarta Sans"', 'sans-serif'], pixel: ['"Press Start 2P"', 'monospace'] } } }
+        }
+    </script>
+    <style>
+        /* ---------- textura de ruido sobre toda la página ---------- */
+        body::after{
+            content:'';position:fixed;inset:0;z-index:80;pointer-events:none;opacity:.045;
+            background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+        }
+        /* ---------- grid de fondo que se desvanece ---------- */
+        .bg-grid{
+            background-image:
+                linear-gradient(rgba(148,163,184,.055) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(148,163,184,.055) 1px, transparent 1px);
+            background-size:42px 42px;
+            -webkit-mask-image:radial-gradient(ellipse 90% 70% at 50% 0%, #000 30%, transparent 78%);
+            mask-image:radial-gradient(ellipse 90% 70% at 50% 0%, #000 30%, transparent 78%);
+        }
+        .orb{position:absolute;border-radius:50%;filter:blur(100px)}
+        /* ---------- tarjeta con borde degradado (glass) ---------- */
+        .gcard{
+            position:relative;border-radius:20px;padding:1px;
+            background:linear-gradient(160deg, rgba(52,211,153,.5), rgba(30,41,59,.35) 38%, rgba(45,212,191,.1) 70%, rgba(52,211,153,.25));
+            box-shadow:0 24px 70px -24px rgba(0,0,0,.7), 0 0 90px -45px rgba(16,185,129,.55);
+            transition:box-shadow .5s ease;
+        }
+        .gcard:hover{box-shadow:0 24px 70px -24px rgba(0,0,0,.7), 0 0 110px -40px rgba(16,185,129,.75)}
+        .gcard-inner{border-radius:19px;background:rgba(2,6,23,.72);backdrop-filter:blur(14px)}
+        /* esquinas tipo visor/escáner */
+        .corner{position:absolute;width:14px;height:14px;border-color:rgba(52,211,153,.55);pointer-events:none;transition:border-color .4s,transform .4s}
+        .corner.tl{top:-6px;left:-6px;border-top:2px solid;border-left:2px solid}
+        .corner.tr{top:-6px;right:-6px;border-top:2px solid;border-right:2px solid}
+        .corner.bl{bottom:-6px;left:-6px;border-bottom:2px solid;border-left:2px solid}
+        .corner.br{bottom:-6px;right:-6px;border-bottom:2px solid;border-right:2px solid}
+        .gcard:hover .corner{border-color:rgba(52,211,153,.95)}
+        .gcard:hover .corner.tl{transform:translate(-3px,-3px)}
+        .gcard:hover .corner.tr{transform:translate(3px,-3px)}
+        .gcard:hover .corner.bl{transform:translate(-3px,3px)}
+        .gcard:hover .corner.br{transform:translate(3px,3px)}
+        /* ---------- hormigas animadas del dropzone ---------- */
+        .ants rect{
+            fill:none;stroke:rgba(100,116,139,.5);stroke-width:1.5;
+            stroke-dasharray:7 6;
+            animation:antsMove 36s linear infinite;
+            transition:stroke .35s ease;
+        }
+        @keyframes antsMove{to{stroke-dashoffset:-260}}
+        .drop{transition:background .3s ease, box-shadow .3s ease}
+        .drop:hover .ants rect,.drop:focus-within .ants rect{stroke:rgba(52,211,153,.75)}
+        .drop.drag{background:rgba(16,185,129,.06);box-shadow:inset 0 0 70px -25px rgba(16,185,129,.45)}
+        .drop.drag .ants rect{stroke:rgba(52,211,153,1);animation-duration:7s}
+        .drop.done .ants rect{stroke:rgba(52,211,153,.9);stroke-dasharray:100 0}
+        /* scan-beam al arrastrar */
+        .scan{position:absolute;left:0;right:0;height:70px;top:-30%;opacity:0;pointer-events:none;
+            background:linear-gradient(180deg,transparent,rgba(52,211,153,.14),transparent)}
+        .drop.drag .scan{opacity:1;animation:scanMove 1.6s ease-in-out infinite}
+        @keyframes scanMove{from{top:-30%}to{top:110%}}
+        /* ---------- brillo que barre botones ---------- */
+        .btn-shine{position:relative;overflow:hidden}
+        .btn-shine::after{
+            content:'';position:absolute;inset:0;
+            background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.35) 50%,transparent 65%);
+            transform:translateX(-130%);
+        }
+        .btn-shine:hover::after{animation:sweep .8s ease forwards}
+        @keyframes sweep{to{transform:translateX(130%)}}
+        /* ---------- entradas escalonadas ---------- */
+        .reveal{opacity:0;transform:translateY(20px);animation:fadeUp .7s cubic-bezier(.22,.61,.36,1) forwards;animation-delay:var(--d,0s)}
+        @keyframes fadeUp{to{opacity:1;transform:translateY(0)}}
+        /* ---------- fantasma flotante ---------- */
+        @keyframes floatY{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-20px) rotate(2deg)}}
+        .float-slow{animation:floatY 13s ease-in-out infinite}
+        @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+        .bob{animation:bob 3.2s ease-in-out infinite}
+        @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:0}}
+        .blink{animation:blink 1.15s steps(1) infinite}
+        @keyframes shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-3px)}40%,60%{transform:translateX(3px)}}
+        .drop.shake{animation:shake .45s ease}
+        /* texto degradado */
+        .txt-grad{background:linear-gradient(92deg,#6ee7b7,#34d399 45%,#2dd4bf);-webkit-background-clip:text;background-clip:text;color:transparent}
+        /* scrollbar */
+        ::-webkit-scrollbar{width:10px}
+        ::-webkit-scrollbar-track{background:#020617}
+        ::-webkit-scrollbar-thumb{background:#1e293b;border-radius:8px}
+        ::-webkit-scrollbar-thumb:hover{background:#065f46}
+        @media (prefers-reduced-motion:reduce){
+            *,*::before,*::after{animation:none!important;transition:none!important}
+            .reveal{opacity:1;transform:none}
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans selection:bg-emerald-400 selection:text-slate-950">
+
+<!-- Símbolos SVG reutilizables (el fantasma de la marca) -->
+<svg width="0" height="0" class="hidden" aria-hidden="true">
+    <symbol id="i-ghost" viewBox="0 0 24 24">
+        <path d="M12 2.7c-3.9 0-7.1 3.2-7.1 7.1v11.4l2.37-2 2.36 2 2.37-2 2.37 2 2.36-2 2.38 2V9.8c0-3.9-3.2-7.1-7.1-7.1z"
+              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        <circle cx="9.6" cy="10" r="1.15" fill="currentColor"/>
+        <circle cx="14.4" cy="10" r="1.15" fill="currentColor"/>
+    </symbol>
+</svg>
+
+<!-- Ambiente: grid + orbes + fantasmas de fondo -->
+<div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+    <div class="bg-grid absolute inset-0"></div>
+    <div class="orb absolute -top-48 left-1/2 h-[560px] w-[560px] -translate-x-1/2 bg-emerald-500/10"></div>
+    <div class="orb absolute -right-40 top-1/3 h-[460px] w-[460px] bg-teal-500/10"></div>
+    <div class="orb absolute -left-48 bottom-0 h-[420px] w-[420px] bg-emerald-600/10"></div>
+    <svg class="float-slow absolute -right-16 top-24 h-80 w-80 text-emerald-400 opacity-[0.06]"><use href="#i-ghost"/></svg>
+    <svg class="float-slow absolute -left-20 bottom-10 h-56 w-56 text-emerald-300 opacity-[0.05]" style="animation-delay:-6s"><use href="#i-ghost"/></svg>
+</div>
+
+<!-- Header -->
+<header class="sticky top-0 z-50 border-b border-slate-800/60 bg-slate-950/70 px-6 py-4 backdrop-blur-xl">
+    <div class="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent"></div>
+    <div class="mx-auto flex w-full max-w-4xl items-center justify-between">
+        <a href="#" class="group flex items-center gap-3">
+            <span class="grid h-9 w-9 place-items-center rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 shadow-[0_0_24px_-8px_rgba(16,185,129,.9)] transition group-hover:scale-105">
+                <svg class="bob h-5 w-5"><use href="#i-ghost"/></svg>
+            </span>
+            <span class="flex items-baseline gap-2">
+                <h1 class="font-pixel text-[11px] tracking-wider text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,.5)] sm:text-sm">GHOSTLY ANALYST</h1>
+                <span class="hidden rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-pixel text-[8px] text-emerald-400/80 sm:inline">V5</span>
+            </span>
+        </a>
+        <a href="https://paypal.me/leo552573" target="_blank" rel="noopener"
+           class="btn-shine inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-400 transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-400/60 hover:bg-emerald-500/20 hover:shadow-[0_8px_30px_-10px_rgba(16,185,129,.7)]">
+            <span>☕</span><span class="hidden sm:inline">Invítame un café</span><span class="sm:hidden">Café</span>
+        </a>
+    </div>
+</header>
+
+<!-- Main -->
+<main class="relative z-10 mx-auto w-full max-w-4xl flex-grow px-4 py-14 sm:py-16">
+
+    <!-- Hero -->
+    <div class="mx-auto max-w-2xl text-center">
+        <div class="reveal inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/5 px-3.5 py-1.5 text-[11px] font-medium tracking-wide text-emerald-300">
+            <span class="relative flex h-2 w-2">
+                <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"></span>
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+            </span>
+            Analista fantasma en línea — V5
+        </div>
+
+        <h2 class="reveal mt-6 text-3xl font-extrabold tracking-tight sm:text-5xl" style="--d:.06s">
+            Automatiza tus reportes de<br class="hidden sm:block">
+            <span class="txt-grad">Excel al instante</span>
+        </h2>
+        <p class="reveal mx-auto mt-4 max-w-xl text-sm text-slate-400 sm:text-base" style="--d:.12s">
+            Sube tu archivo y deja que el analista fantasma procese los datos por ti en segundos.
+        </p>
+
+        <!-- Botones de descarga -->
+        <div class="reveal mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row" style="--d:.18s">
+            <a href="/download-guide" class="btn-shine inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-xs font-semibold text-emerald-300 transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-400/70 hover:bg-emerald-500/20 hover:shadow-[0_10px_35px_-12px_rgba(16,185,129,.8)]">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span>Descargar Guía de IA (.pdf)</span>
+            </a>
+            <a href="/download-template" class="btn-shine inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/60 px-4 py-2.5 text-xs font-semibold text-slate-300 transition-all duration-300 hover:-translate-y-0.5 hover:border-slate-500 hover:bg-slate-800/80 hover:text-white">
+                <svg class="h-4 w-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                <span>Descargar Plantilla (.xlsx)</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Formulario -->
+    <div class="gcard reveal mx-auto mt-12 max-w-2xl" style="--d:.28s">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <div class="gcard-inner p-6 sm:p-8">
+            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" autocomplete="off" class="space-y-6">
+
+                <!-- Dropzone -->
+                <div id="dropzone" class="drop relative cursor-pointer rounded-2xl bg-slate-950/50 p-8 text-center sm:p-10">
+                    <svg class="ants pointer-events-none absolute inset-0 h-full w-full" preserveAspectRatio="none" aria-hidden="true">
+                        <rect x="1" y="1" width="100%" height="100%" rx="14" ry="14"></rect>
+                    </svg>
+                    <div class="scan"></div>
+                    <input type="file" name="file" id="fileInput" accept=".xlsx" required
+                           class="absolute inset-0 z-[1] h-full w-full cursor-pointer opacity-0">
+
+                    <div class="pointer-events-none relative z-[2]">
+                        <div class="icoWrap mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_30px_-10px_rgba(16,185,129,.8)] transition-transform duration-300">
+                            <svg class="bob h-7 w-7"><use href="#i-ghost"/></svg>
+                        </div>
+                        <p id="fileName" class="text-sm font-medium text-slate-300">Haz clic para seleccionar tu archivo Excel o arrástralo aquí</p>
+                        <p class="mt-1.5 text-xs tracking-wide text-slate-500">Formatos compatibles: .XLSX · .XLS</p>
+                    </div>
+
+                    <!-- Chip del archivo seleccionado -->
+                    <div id="fileInfo" class="relative z-[2] mx-auto mt-5 hidden max-w-sm items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-left">
+                        <svg class="h-5 w-5 flex-none text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="min-w-0 flex-1">
+                            <span id="chipName" class="block truncate text-sm font-semibold text-emerald-300"></span>
+                            <span id="chipMeta" class="block text-xs text-slate-400"></span>
+                        </span>
+                        <button type="button" id="clearFile" aria-label="Quitar archivo"
+                                class="grid h-7 w-7 flex-none place-items-center rounded-lg text-slate-400 transition hover:bg-rose-500/10 hover:text-rose-300">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M6 6l12 12M18 6L6 18"/></svg>
+                        </button>
+                    </div>
+
+                    <p id="dropErr" class="relative z-[2] mt-4 hidden text-xs font-medium text-rose-400"></p>
+                </div>
+
+                <!-- Selecciona la función -->
+                <div class="text-left">
+                    <label for="funcion" class="mb-2 block text-sm font-medium text-slate-300">¿Qué quieres hacer con tus datos?</label>
+                    <select name="funcion" id="funcion" required
+                            class="w-full rounded-xl border border-slate-700/70 bg-slate-950/60 px-4 py-3.5 text-sm text-slate-200 outline-none transition hover:border-slate-600 focus:border-emerald-400/80 focus:ring-4 focus:ring-emerald-500/10">
+                        <option value="">-- Selecciona una función --</option>
+                        <option value="resumen">Resumen por categoría (suma)</option>
+                        <option value="busqueda">Búsqueda de valores</option>
+                        <option value="duplicados">Eliminar duplicados</option>
+                        <option value="formato">Formato condicional (colores)</option>
+                        <option value="grafico">Crear gráfico</option>
+                        <option value="conteo">Conteo de valores</option>
+                        <option value="limpieza">Limpieza de texto</option>
+                        <option value="limpieza_profunda">Limpieza profunda (espacios + mayúsculas)</option>
+                        <option value="fcr">Cálculo de FCR</option>
+                        <option value="filtrar">Filtrar y ordenar</option>
+                        <option value="consolidar">Consolidar varias hojas</option>
+                        <option value="margen">Cálculo de margen</option>
+                        <option value="vencimientos">Alertar vencimientos</option>
+                        <option value="operacion">Operación entre columnas (+ - x /)</option>
+                        <option value="promedio">Promedio por categoría</option>
+                        <option value="descuento">Aplicar descuento</option>
+                        <option value="maximo_minimo">Máximo / Mínimo por categoría</option>
+                        <option value="porcentaje_total">Porcentaje del total</option>
+                    </select>
+                </div>
+
+                <!-- Hoja a usar -->
+                <div class="text-left">
+                    <label for="hoja" class="mb-2 block text-sm font-medium text-slate-300">Hoja del Excel a usar</label>
+                    <select name="hoja" id="hoja" required disabled
+                            class="w-full rounded-xl border border-slate-700/70 bg-slate-950/60 px-4 py-3.5 text-sm text-slate-200 outline-none transition hover:border-slate-600 focus:border-emerald-400/80 focus:ring-4 focus:ring-emerald-500/10 disabled:opacity-50">
+                        <option value="">-- Sube un archivo primero --</option>
+                    </select>
+                </div>
+
+                <!-- Campos que dependen de la función elegida (se llenan solos con JS) -->
+                <div id="campos-dinamicos" class="space-y-4 text-left"></div>
+
+                <button type="submit" id="submitBtn"
+                        class="btn-shine flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-emerald-400 to-emerald-500 px-4 py-4 text-sm font-bold text-slate-950 shadow-[0_10px_40px_-10px_rgba(16,185,129,.55)] transition-all duration-300 hover:-translate-y-0.5 hover:from-emerald-300 hover:to-emerald-400 hover:shadow-[0_16px_50px_-10px_rgba(16,185,129,.75)] active:translate-y-0 active:scale-[.99] sm:text-base">
+                    <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    <span id="btnText">Procesar Datos</span>
+                    <svg id="btnSpin" class="hidden h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                    </svg>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    (function(){
+        'use strict';
+        // Coincide EXACTAMENTE con PARAMS_POR_FUNCION del motor (motor_excel_sin_ia.py)
+        const CAMPOS_POR_FUNCION = {
+            resumen:          [{n:"columna_agrupar", l:"Columna a agrupar (nombre o número)"}, {n:"columna_valores", l:"Columna con los valores a sumar"}],
+            busqueda:         [{n:"columna_buscar", l:"Columna donde buscar"}, {n:"columna_resultado", l:"Columna a traer como resultado"}, {n:"valores_a_buscar", l:"Valores a buscar (separados por coma)"}, {n:"hoja_resultado", l:"Hoja donde está el resultado (vacío = misma hoja)", req:false}],
+            duplicados:       [{n:"columnas_verificar", l:"Columnas a comparar (separadas por coma)"}],
+            formato:          [{n:"columna_valores", l:"Columna con los valores"}, {n:"umbral_alto", l:"Umbral alto (verde si es mayor o igual)"}, {n:"umbral_bajo", l:"Umbral bajo (rojo si es menor o igual)"}],
+            grafico:          [{n:"hoja_datos", l:"Hoja con los datos ya resumidos"}, {n:"tipo_grafico", l:"Tipo (barras / lineas / pastel)"}],
+            conteo:           [{n:"columna_contar", l:"Columna a contar"}],
+            limpieza:         [{n:"columnas_limpiar", l:"Columnas a limpiar (separadas por coma)"}],
+            limpieza_profunda: [{n:"columnas_limpiar", l:"Columnas a limpiar (separadas por coma)"}, {n:"capitalizar", l:"¿Poner Mayúscula Inicial en cada palabra? (si/no)", req:false}],
+            fcr:              [{n:"columna_alimento", l:"Columna de alimento"}, {n:"columna_biomasa", l:"Columna de biomasa"}, {n:"columna_lote", l:"Columna de lote"}],
+            filtrar:          [{n:"columna_filtro", l:"Columna a filtrar", req:false}, {n:"valor_filtro", l:"Valor del filtro", req:false}, {n:"columna_ordenar", l:"Columna para ordenar"}, {n:"orden", l:"Orden (asc / desc)"}],
+            consolidar:       [{n:"hojas_a_unir", l:"Hojas a unir (separadas por coma)"}],
+            margen:           [{n:"columna_costo", l:"Columna de costo"}, {n:"columna_venta", l:"Columna de venta"}],
+            vencimientos:     [{n:"columna_fecha", l:"Columna con fechas"}, {n:"dias_alerta", l:"Días de anticipación para la alerta"}],
+            operacion:        [{n:"columna_a", l:"Primera columna"}, {n:"columna_b", l:"Segunda columna"}, {n:"tipo_operacion", l:"Tipo (suma / resta / multiplicacion / division)"}],
+            promedio:         [{n:"columna_agrupar", l:"Columna a agrupar"}, {n:"columna_valores", l:"Columna con los valores"}],
+            descuento:        [{n:"columna_precio", l:"Columna de precio"}, {n:"columna_porcentaje", l:"Columna con % de descuento", req:false}, {n:"porcentaje_fijo", l:"% fijo si no hay columna (ej: 10)", req:false}],
+            maximo_minimo:    [{n:"columna_agrupar", l:"Columna a agrupar"}, {n:"columna_valores", l:"Columna con los valores"}, {n:"tipo", l:"Tipo (maximo / minimo / ambos)"}],
+            porcentaje_total: [{n:"columna_agrupar", l:"Columna a agrupar"}, {n:"columna_valores", l:"Columna con los valores"}],
+        };
+
+        const INPUT_CLASSES = "w-full rounded-xl border border-slate-700/70 bg-slate-950/60 px-4 py-3.5 text-sm text-slate-200 outline-none transition placeholder:text-slate-500 hover:border-slate-600 focus:border-emerald-400/80 focus:ring-4 focus:ring-emerald-500/10";
+        const LABEL_CLASSES = "mb-2 block text-sm font-medium text-slate-300";
+
+        const selectFuncion = document.getElementById("funcion");
+        const contenedor = document.getElementById("campos-dinamicos");
+
+        selectFuncion.addEventListener("change", function () {
+            contenedor.innerHTML = "";
+            const campos = CAMPOS_POR_FUNCION[this.value] || [];
+            campos.forEach(campo => {
+                const wrap = document.createElement("div");
+
+                const label = document.createElement("label");
+                label.className = LABEL_CLASSES;
+                label.setAttribute("for", "campo_" + campo.n);
+                label.textContent = campo.l + (campo.req === false ? " (opcional)" : "");
+
+                const input = document.createElement("input");
+                input.type = "text";
+                input.name = campo.n;
+                input.id = "campo_" + campo.n;
+                input.className = INPUT_CLASSES;
+                if (campo.req !== false) input.required = true;
+
+                wrap.appendChild(label);
+                wrap.appendChild(input);
+                contenedor.appendChild(wrap);
+            });
+        });
+    })();
+    </script>
+</main>
+
+<!-- Footer -->
+<footer class="relative z-10 border-t border-slate-800/60">
+    <div class="mx-auto flex max-w-4xl flex-col items-center gap-2.5 px-4 py-7">
+        <p class="font-pixel text-[9px] tracking-wider text-emerald-500/70 sm:text-[10px]">
+            &gt; sistema listo<span class="blink text-emerald-400">_</span>
+        </p>
+        <p class="text-xs text-slate-500">Ghostly Analyst V5 — Creado para optimizar tu tiempo.</p>
+    </div>
+</footer>
+
+<script>
+(function(){
+    'use strict';
+    const input   = document.getElementById('fileInput');
+    const zone    = document.getElementById('dropzone');
+    const nameEl  = document.getElementById('fileName');
+    const info    = document.getElementById('fileInfo');
+    const chipName= document.getElementById('chipName');
+    const chipMeta= document.getElementById('chipMeta');
+    const clearBt = document.getElementById('clearFile');
+    const errEl   = document.getElementById('dropErr');
+    const form    = document.getElementById('uploadForm');
+    const btn     = document.getElementById('submitBtn');
+    const btnText = document.getElementById('btnText');
+    const btnSpin = document.getElementById('btnSpin');
+
+    const DEFAULT_MSG = 'Haz clic para seleccionar tu archivo Excel o arrástralo aquí';
+    let errT = null;
+
+    const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const humanSize = b => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(1) + ' MB';
+
+    function showError(msg){
+        errEl.textContent = '⚠ ' + msg;
+        errEl.classList.remove('hidden');
+        zone.classList.remove('shake'); void zone.offsetWidth; /* reinicia la animación */
+        zone.classList.add('shake');
+        clearTimeout(errT);
+        errT = setTimeout(()=>errEl.classList.add('hidden'), 3800);
+    }
+    const hojaSelect = document.getElementById('hoja');
+
+    function resetUI(){
+        input.value = '';
+        nameEl.textContent = DEFAULT_MSG;
+        info.classList.add('hidden');
+        zone.classList.remove('done');
+        errEl.classList.add('hidden');
+        hojaSelect.innerHTML = '<option value="">-- Sube un archivo primero --</option>';
+        hojaSelect.disabled = true;
+    }
+    function cargarHojasDelExcel(f){
+        hojaSelect.innerHTML = '<option value="">Leyendo hojas del archivo...</option>';
+        hojaSelect.disabled = true;
+        const reader = new FileReader();
+        reader.onload = function(e){
+            try{
+                const datos = new Uint8Array(e.target.result);
+                const libro = XLSX.read(datos, { type: 'array', bookSheets: true });
+                const hojas = libro.SheetNames;
+                hojaSelect.innerHTML = '';
+                hojas.forEach(nombre => {
+                    const opt = document.createElement('option');
+                    opt.value = nombre;
+                    opt.textContent = nombre;
+                    hojaSelect.appendChild(opt);
+                });
+                hojaSelect.disabled = false;
+            }catch(err){
+                hojaSelect.innerHTML = '<option value="">No se pudo leer el archivo</option>';
+                showError('No pude leer las hojas de este Excel. Intenta con otro archivo.');
+            }
+        };
+        reader.readAsArrayBuffer(f);
+    }
+    function setFile(f){
+        if(!f) return;
+        if(!/\.xlsx$/i.test(f.name)){
+            input.value = '';
+            showError('Solo se aceptan archivos .xlsx (Excel moderno). Si el tuyo es .xls, ábrelo en Excel y guárdalo como .xlsx primero.');
+            return;
+        }
+        errEl.classList.add('hidden');
+        zone.classList.add('done');
+        nameEl.innerHTML = '<span class="font-semibold text-emerald-300">' + esc(f.name) + '</span> <span class="text-slate-400">listo — haz clic para cambiar</span>';
+        chipName.textContent = f.name;
+        chipMeta.textContent = humanSize(f.size) + ' · listo para procesar';
+        info.classList.remove('hidden');
+        info.classList.add('flex');
+        cargarHojasDelExcel(f);
+    }
+
+    input.addEventListener('change', e => setFile(e.target.files[0]));
+    clearBt.addEventListener('click', e => { e.stopPropagation(); resetUI(); input.focus(); });
+
+    /* ---- arrastrar y soltar real ---- */
+    ['dragenter','dragover'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('drag'); }));
+    zone.addEventListener('dragleave', e => { if(!zone.contains(e.relatedTarget)) zone.classList.remove('drag'); });
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag');
+        const f = e.dataTransfer.files && e.dataTransfer.files[0];
+        if(f){
+            try{ const dt = new DataTransfer(); dt.items.add(f); input.files = dt.files; }catch(_){}
+            setFile(f);
+        }
+    });
+
+    /* ---- estado de carga al enviar (el backend y los name= no cambian) ---- */
+    form.addEventListener('submit', () => {
+        if(input.files.length === 0) return;
+        btn.disabled = true;
+        btn.classList.add('cursor-wait');
+        btnText.textContent = 'Procesando…';
+        btnSpin.classList.remove('hidden');
+    });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Archivos subidos por usuarios y respaldos automáticos — no van en GitHub
+uploads/
+respaldos_excel/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Archivos generados automáticamente por app.py (se recrean solos)
+plantilla_ejemplo.xlsx
+
+# Configuración local / variables de entorno
+.env
